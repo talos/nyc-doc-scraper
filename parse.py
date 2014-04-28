@@ -1,9 +1,134 @@
-import lxml
-import sys
+from models import Entity, Name, Address, EntityTitle, StockInformation, \
+        NameHistory, Title
 
-def parse(content):
-    return content
+import sys
+import logging
+import re
+
+from datetime import datetime
+from database import get_session
+from sqlalchemy.exc import IntegrityError, InvalidRequestError
+from cssselect import GenericTranslator
+from lxml import etree
+from zipfile import ZipFile
+
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+tableselector = GenericTranslator().css_to_xpath('table')
+trselector = GenericTranslator().css_to_xpath('tr')
+thselector = GenericTranslator().css_to_xpath('th')
+tdselector = GenericTranslator().css_to_xpath('td')
+
+
+def css_select(self, html, selector, as_strings=True):
+    """
+    Select string via CSS selector from text.  If `as_strings` is True (the
+    default, then it returns a list of strings, otherwise it returns a list
+    of lxml elements.
+    """
+    tree = etree.HTML(html.decode('utf-8'))
+    elements = tree.xpath(GenericTranslator().css_to_xpath(selector))
+    if as_strings:
+        return map(etree.tostring, elements)
+    else:
+        return elements
+
+
+def totext(element):
+    return collapse_ws(etree.tostring(element, method='text', encoding='utf-8').decode('utf-8'))
+
+
+def collapse_ws(text):
+    """
+    Collapse internal whitespace & trim leading & trailing whitespace
+    """
+    return re.sub(r'[ \t\f\v]+', u' ', text).strip()
+
+
+def parse(session, content):
+    tree = etree.HTML(content.decode('utf-8'))
+
+    tables = tree.xpath(tableselector)
+    status_table, address_table, stock_table, name_history_table = tables
+
+    name, dos_id_num, dos_filing_date, county, jurisdiction, entity_type, \
+            current_entity_status = [totext(td) for td in status_table.xpath(tdselector)]
+
+    try:
+        dos_filing_date = datetime.strptime(dos_filing_date, '%b %d, %Y') if dos_filing_date else None
+    except ValueError:
+        dos_filing_date = datetime.strptime(dos_filing_date, '%B %d, %Y') if dos_filing_date else None
+
+
+    try:
+        entity = Entity(dos_id=dos_id_num, current_entity_name=name,
+                        initial_dos_filing_date=dos_filing_date,
+                        county=county, jurisdiction = jurisdiction,
+                        entity_type=entity_type, current_entity_status=current_entity_status)
+        session.add(entity)
+
+        address_table_headers = address_table.xpath(thselector)
+        address_table_columns = address_table.xpath(tdselector)
+
+        for i, h in enumerate(address_table_headers):
+            addrs = totext(address_table_columns[i]).split(u'\n')
+
+            title_str = totext(address_table_headers[i])
+            title = session.query(Title).filter(Title.title == title_str).first() \
+                    or Title(title=title_str)
+
+            address_str = u'\n'.join(addrs[1:])
+            address = session.query(Address).filter(Address.address == address_str).first() \
+                    or Address(address=address_str)
+
+            name_str = addrs[0]
+            name = session.query(Name).filter(Name.name == name_str).first() \
+                    or Name(name=name_str)
+
+            entity_title = EntityTitle(entity=entity, title=title,
+                                       address=address, name=name)
+
+            session.add(entity_title)
+
+        stock_rows = stock_table.xpath(trselector)
+
+        for i, row in enumerate(stock_rows):
+            if i > 0:
+                cols = row.xpath(tdselector)
+                session.add(StockInformation(
+                    num_of_shares=totext(cols[0]),
+                    type_of_stock=totext(cols[1]),
+                    dollar_value_per_share=totext(cols[2])
+                ))
+
+        name_history_rows = name_history_table.xpath(trselector)
+
+        for i, row in enumerate(name_history_rows):
+            if i > 0:
+                cols = row.xpath(tdselector)
+                datecol = totext(cols[0])
+                session.add(NameHistory(
+                    filing_date=datetime.strptime(datecol, '%b %d, %Y') if datecol else None,
+                    name_type=totext(cols[1]),
+                    entity_name=totext(cols[2])
+                ))
+
+            session.commit()
+    except InvalidRequestError as e:
+        logger.debug(e)
+        logger.info('Skipped {} (InvalidRequestError)'.format(dos_id_num))
+        session.rollback()
+    except IntegrityError as e:
+        logger.debug(e)
+        logger.info('Skipped {} (IntegrityError)'.format(dos_id_num))
+        session.rollback()
+
 
 if __name__ == '__main__':
-    f = open(sys.argv[1])
-    print parse(f.read())
+    session = get_session(sys.argv[1])
+    with ZipFile(sys.argv[2], 'a') as archive:
+        for name in archive.namelist():
+            if name.endswith('.html'):
+                parse(session, archive.open(name).read())

@@ -18,36 +18,47 @@ class Entity(Base):
     entity_type = Column(String(STRING_SZ))
     current_entity_status = Column(String(STRING_SZ))
 
-    addresses = relationship('Address', secondary='entity_addresses',
-                             back_populates='entities')
+    entity_titles = relationship('EntityTitle', backref='entity')
     stockinformation = relationship('StockInformation', backref='entity')
     namehistory = relationship('NameHistory', backref='entity')
 
     current_through = Column(DateTime())
 
 
+class EntityTitle(Base):
+    __tablename__ = 'entity_titles'
+
+    entity_id = Column(Integer(), ForeignKey('entities.dos_id'), primary_key=True)
+    title_id = Column(Integer(), ForeignKey('titles.id'), primary_key=True)
+    name_id = Column(Integer(), ForeignKey('names.id'), primary_key=True)
+    address_id = Column(Integer(), ForeignKey('addresses.id'), primary_key=True)
+
+
+class Title(Base):
+    __tablename__ = 'titles'
+
+    id = Column(Integer(), primary_key=True)
+    title = Column(String(), unique=True)
+
+    entity_titles = relationship('EntityTitle', backref='title')
+
+
+class Name(Base):
+    __tablename__ = 'names'
+
+    id = Column(Integer(), primary_key=True)
+    name = Column(String(), unique=True)
+
+    entity_titles = relationship('EntityTitle', backref='name')
+
+
 class Address(Base):
     __tablename__ = 'addresses'
 
     id = Column(Integer(), primary_key=True)
+    address = Column(String(), unique=True)
 
-    addr1 = Column(String(STRING_SZ))
-    addr2 = Column(String(STRING_SZ))
-    addr3 = Column(String(STRING_SZ))
-
-    entities = relationship('Entity', secondary='entity_addresses',
-                            back_populates='addresses')
-
-
-class EntityAddress(Base):
-    __tablename__ = 'entity_addresses'
-
-    id = Column(Integer(), primary_key=True)
-
-    entity_id = Column(Integer(), ForeignKey('entities.dos_id'))
-    address_id = Column(Integer(), ForeignKey('addresses.id'))
-
-    title = Column(String())
+    entity_titles = relationship('EntityTitle', backref='address')
 
 
 class StockInformation(Base):
