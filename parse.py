@@ -7,7 +7,7 @@ import re
 
 from datetime import datetime
 from database import get_session
-from sqlalchemy.exc import IntegrityError, InvalidRequestError
+from sqlalchemy.exc import IntegrityError, InvalidRequestError, DataError
 from cssselect import GenericTranslator
 from lxml import etree
 from zipfile import ZipFile
@@ -56,6 +56,9 @@ def parse(session, content):
     name, dos_id_num, dos_filing_date, county, jurisdiction, entity_type, \
             current_entity_status = [totext(td) for td in status_table.xpath(tdselector)]
 
+    if not dos_id_num:
+        return
+
     try:
         dos_filing_date = datetime.strptime(dos_filing_date, '%b %d, %Y') if dos_filing_date else None
     except ValueError:
@@ -98,7 +101,8 @@ def parse(session, content):
             if i > 0:
                 cols = row.xpath(tdselector)
                 session.add(StockInformation(
-                    num_of_shares=totext(cols[0]),
+                    entity=entity,
+                    num_of_shares=totext(cols[0]) or None,
                     type_of_stock=totext(cols[1]),
                     dollar_value_per_share=totext(cols[2])
                 ))
@@ -110,6 +114,7 @@ def parse(session, content):
                 cols = row.xpath(tdselector)
                 datecol = totext(cols[0])
                 session.add(NameHistory(
+                    entity=entity,
                     filing_date=datetime.strptime(datecol, '%b %d, %Y') if datecol else None,
                     name_type=totext(cols[1]),
                     entity_name=totext(cols[2])
@@ -124,11 +129,15 @@ def parse(session, content):
         logger.debug(e)
         logger.info('Skipped {} (IntegrityError)'.format(dos_id_num))
         session.rollback()
+    except DataError as e:
+        logger.debug(e)
+        logger.info('Skipped {} (DataError)'.format(dos_id_num))
+        session.rollback()
 
 
 if __name__ == '__main__':
     session = get_session(sys.argv[1])
-    with ZipFile(sys.argv[2], 'a') as archive:
+    with ZipFile(sys.argv[2], 'r') as archive:
         for name in archive.namelist():
             if name.endswith('.html'):
                 parse(session, archive.open(name).read())
