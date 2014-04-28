@@ -48,6 +48,7 @@ def collapse_ws(text):
 
 
 def parse(session, content):
+    start = datetime.now()
     tree = etree.HTML(content.decode('utf-8'))
 
     tables = tree.xpath(tableselector)
@@ -120,7 +121,8 @@ def parse(session, content):
                     entity_name=totext(cols[2])
                 ))
 
-            session.commit()
+        #print('processed {} in {}'.format(dos_id_num, datetime.now() - start))
+        session.commit()
     except InvalidRequestError as e:
         logger.debug(e)
         logger.info('Skipped {} (InvalidRequestError)'.format(dos_id_num))
@@ -141,3 +143,4 @@ if __name__ == '__main__':
         for name in archive.namelist():
             if name.endswith('.html'):
                 parse(session, archive.open(name).read())
+        session.commit()
