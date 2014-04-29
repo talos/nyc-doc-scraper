@@ -49,7 +49,7 @@ def collapse_ws(text):
 
 def parse(session, content):
     start = datetime.now()
-    tree = etree.HTML(content.decode('utf-8'))
+    tree = etree.HTML(content.decode('WINDOWS-1252'))
 
     tables = tree.xpath(tableselector)
     status_table, address_table, stock_table, name_history_table = tables
@@ -135,12 +135,20 @@ def parse(session, content):
         logger.debug(e)
         logger.info('Skipped {} (DataError)'.format(dos_id_num))
         session.rollback()
+    except Exception as e:
+        logger.error(e)
+        session.rollback()
 
 
 if __name__ == '__main__':
     session = get_session(sys.argv[1])
+    min_id = int(sys.argv[3]) or None
     with ZipFile(sys.argv[2], 'r') as archive:
         for name in archive.namelist():
             if name.endswith('.html'):
+                if min_id:
+                    dos_id = int(name.replace('.html', ''))
+                    if dos_id < min_id:
+                        continue
                 parse(session, archive.open(name).read())
         session.commit()
