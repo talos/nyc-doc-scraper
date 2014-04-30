@@ -49,7 +49,10 @@ def collapse_ws(text):
 
 def parse(session, content):
     start = datetime.now()
-    tree = etree.HTML(content.decode('WINDOWS-1252'))
+    try:
+        tree = etree.HTML(content.decode('WINDOWS-1252'))
+    except UnicodeDecodeError:
+        tree = etree.HTML(content.decode('latin1'))
 
     tables = tree.xpath(tableselector)
     status_table, address_table, stock_table, name_history_table = tables
