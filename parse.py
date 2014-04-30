@@ -135,9 +135,6 @@ def parse(session, content):
         logger.debug(e)
         logger.info('Skipped {} (DataError)'.format(dos_id_num))
         session.rollback()
-    except Exception as e:
-        logger.error(e)
-        session.rollback()
 
 
 if __name__ == '__main__':
@@ -150,5 +147,9 @@ if __name__ == '__main__':
                     dos_id = int(name.replace('.html', ''))
                     if dos_id < min_id:
                         continue
-                parse(session, archive.open(name).read())
+                try:
+                    parse(session, archive.open(name).read())
+                except Exception as e:
+                    logger.error("Could not parse {}: {}".format(dos_id, e))
+                    session.rollback()
         session.commit()
